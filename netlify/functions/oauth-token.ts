@@ -1,31 +1,35 @@
-import type { Config } from "@netlify/functions";
-import { signedToken, verifySignedToken, verifyPKCE } from "../../src/crypto.js";
+import { signedToken, verifySignedToken, verifyPKCE } from "../../src/crypto";
 
-const SECRET = process.env.SWAPCARD_OAUTH_SECRET ?? "dev-secret-change-in-production";
+interface Evt { httpMethod: string; headers: Record<string, string | undefined>; body: string | null; }
+interface Res { statusCode: number; headers?: Record<string, string>; body: string; }
+
+const SECRET = () => process.env.SWAPCARD_OAUTH_SECRET ?? "dev-secret-change-in-production";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
-export default async function handler(req: Request): Promise<Response> {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { status: 204, headers: CORS });
-  }
+function j(code: number, data: unknown): Res {
+  return { statusCode: code, headers: { ...CORS, "Content-Type": "application/json" }, body: JSON.stringify(data) };
+}
 
-  if (req.method !== "POST") {
-    return new Response("Method not allowed", { status: 405, headers: CORS });
-  }
+export const handler = async (event: Evt): Promise<Res> => {
+  if (event.httpMethod === "OPTIONS") return { statusCode: 204, headers: CORS, body: "" };
+  if (event.httpMethod !== "POST") return { statusCode: 405, headers: CORS, body: "Method not allowed" };
 
-  // Parse form-encoded or JSON body
   let params: URLSearchParams;
-  const ct = req.headers.get("content-type") ?? "";
+  const ct = event.headers["content-type"] ?? event.headers["Content-Type"] ?? "";
   if (ct.includes("application/x-www-form-urlencoded")) {
-    params = new URLSearchParams(await req.text());
+    params = new URLSearchParams(event.body ?? "");
   } else {
-    const body = await req.json() as Record<string, string>;
-    params = new URLSearchParams(Object.entries(body));
+    try {
+      const b = JSON.parse(event.body ?? "{}") as Record<string, string>;
+      params = new URLSearchParams(Object.entries(b));
+    } catch {
+      return j(400, { error: "invalid_request" });
+    }
   }
 
   const grantType    = params.get("grant_type") ?? "";
@@ -33,44 +37,23 @@ export default async function handler(req: Request): Promise<Response> {
   const codeVerifier = params.get("code_verifier") ?? "";
   const redirectUri  = params.get("redirect_uri") ?? "";
 
-  if (grantType !== "authorization_code") {
-    return Response.json(
-      { error: "unsupported_grant_type" },
-      { status: 400, headers: CORS },
-    );
-  }
+  if (grantType !== "authorization_code") return j(400, { error: "unsupported_grant_type" });
 
-  const payload = verifySignedToken(code, SECRET);
-  if (!payload) {
-    return Response.json(
-      { error: "invalid_grant", error_description: "Authorization code is invalid or expired" },
-      { status: 400, headers: CORS },
-    );
-  }
+  const payload = verifySignedToken(code, SECRET());
+  if (!payload) return j(400, { error: "invalid_grant", error_description: "Authorization code is invalid or expired" });
 
   if (!verifyPKCE(codeVerifier, payload.code_challenge as string)) {
-    return Response.json(
-      { error: "invalid_grant", error_description: "PKCE verification failed" },
-      { status: 400, headers: CORS },
-    );
+    return j(400, { error: "invalid_grant", error_description: "PKCE verification failed" });
   }
 
   if (payload.redirect_uri !== redirectUri) {
-    return Response.json(
-      { error: "invalid_grant", error_description: "redirect_uri mismatch" },
-      { status: 400, headers: CORS },
-    );
+    return j(400, { error: "invalid_grant", error_description: "redirect_uri mismatch" });
   }
 
   const accessToken = signedToken(
     { scope: "mcp", exp: Date.now() + 24 * 60 * 60 * 1000 },
-    SECRET,
+    SECRET(),
   );
 
-  return Response.json(
-    { access_token: accessToken, token_type: "Bearer", expires_in: 86400, scope: "mcp" },
-    { headers: CORS },
-  );
-}
-
-export const config: Config = { path: "/oauth/token" };
+  return j(200, { access_token: accessToken, token_type: "Bearer", expires_in: 86400, scope: "mcp" });
+};

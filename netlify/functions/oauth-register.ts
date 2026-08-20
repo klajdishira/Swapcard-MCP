@@ -1,7 +1,9 @@
-import type { Config } from "@netlify/functions";
-import { signedToken } from "../../src/crypto.js";
+import { signedToken } from "../../src/crypto";
 
-const SECRET = process.env.SWAPCARD_OAUTH_SECRET ?? "dev-secret-change-in-production";
+interface Evt { httpMethod: string; headers: Record<string, string | undefined>; body: string | null; }
+interface Res { statusCode: number; headers?: Record<string, string>; body: string; }
+
+const SECRET = () => process.env.SWAPCARD_OAUTH_SECRET ?? "dev-secret-change-in-production";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -9,40 +11,30 @@ const CORS = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
-export default async function handler(req: Request): Promise<Response> {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { status: 204, headers: CORS });
-  }
+function j(code: number, data: unknown): Res {
+  return { statusCode: code, headers: { ...CORS, "Content-Type": "application/json" }, body: JSON.stringify(data) };
+}
 
-  if (req.method !== "POST") {
-    return new Response("Method not allowed", { status: 405, headers: CORS });
-  }
+export const handler = async (event: Evt): Promise<Res> => {
+  if (event.httpMethod === "OPTIONS") return { statusCode: 204, headers: CORS, body: "" };
+  if (event.httpMethod !== "POST") return { statusCode: 405, headers: CORS, body: "Method not allowed" };
 
-  let body: Record<string, unknown>;
-  try {
-    body = await req.json() as Record<string, unknown>;
-  } catch {
-    return Response.json(
-      { error: "invalid_request", error_description: "Body must be JSON" },
-      { status: 400, headers: CORS },
-    );
+  let body: Record<string, unknown> = {};
+  try { body = JSON.parse(event.body ?? "{}") as Record<string, unknown>; } catch {
+    return j(400, { error: "invalid_request", error_description: "Body must be JSON" });
   }
 
   const redirectUris = (body.redirect_uris as string[] | undefined) ?? [];
   if (!redirectUris.length) {
-    return Response.json(
-      { error: "invalid_client_metadata", error_description: "redirect_uris is required" },
-      { status: 400, headers: CORS },
-    );
+    return j(400, { error: "invalid_client_metadata", error_description: "redirect_uris is required" });
   }
 
-  // Issue a signed client_id — stateless, no DB needed
   const clientId = signedToken(
     { redirect_uris: redirectUris, iat: Math.floor(Date.now() / 1000) },
-    SECRET,
+    SECRET(),
   );
 
-  return Response.json({
+  return j(201, {
     client_id: clientId,
     client_id_issued_at: Math.floor(Date.now() / 1000),
     redirect_uris: redirectUris,
@@ -51,7 +43,5 @@ export default async function handler(req: Request): Promise<Response> {
     response_types: ["code"],
     client_name: body.client_name ?? "Claude",
     code_challenge_methods_supported: ["S256"],
-  }, { status: 201, headers: CORS });
-}
-
-export const config: Config = { path: "/oauth/register" };
+  });
+};

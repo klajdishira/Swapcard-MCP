@@ -1,11 +1,8 @@
 [build]
-  command = "npm run build"
-  publish = "public"
+  command   = "npm run build"
+  publish   = "public"
+  functions = "functions-built"
 
-[functions]
-  node_bundler = "esbuild"
-
-# Explicit rewrites — backup for config.path in case of version mismatch
 [[redirects]]
   from   = "/mcp"
   to     = "/.netlify/functions/mcp"

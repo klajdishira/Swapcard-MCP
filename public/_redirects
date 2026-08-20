@@ -1,4 +1,4 @@
-/mcp                /.netlify/functions/mcp               200!
+/mcp              /.netlify/functions/mcp             200!
 /oauth/authorize    /.netlify/functions/oauth-authorize   200!
 /oauth/token        /.netlify/functions/oauth-token       200!
 /oauth/register     /.netlify/functions/oauth-register    200!
