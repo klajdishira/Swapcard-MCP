@@ -51,7 +51,7 @@ export const handler = async (event: Evt): Promise<Res> => {
 
   // All tool methods require a valid Bearer token (when SWAPCARD_OAUTH_SECRET is set)
   if (!checkAuth(event.headers)) {
-    return j(401, { error: "Unauthorized" }, { "WWW-Authenticate": 'Bearer realm="swapcard-mcp" error="invalid_token"' });
+    return j(401, { error: "Unauthorized" }, { "WWW-Authenticate": 'Bearer realm="swapcard-mcp", resource_metadata="https://swapcard-mcp.netlify.app/.well-known/oauth-protected-resource"' });
   }
 
   if (method === "tools/list") return j(200, { jsonrpc: "2.0", id, result: { tools } });
