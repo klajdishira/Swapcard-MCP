@@ -1,9 +1,25 @@
 [build]
-  command   = "npm run build"
-  publish   = "public"
+  command = "npm run build"
+  publish = "public"
 
 [functions]
   node_bundler = "esbuild"
 
-[functions."mcp"]
-  included_files = ["src/**"]
+# Explicit rewrites — backup for config.path in case of version mismatch
+[[redirects]]
+  from   = "/mcp"
+  to     = "/.netlify/functions/mcp"
+  status = 200
+  force  = true
+
+[[redirects]]
+  from   = "/oauth/authorize"
+  to     = "/.netlify/functions/oauth-authorize"
+  status = 200
+  force  = true
+
+[[redirects]]
+  from   = "/oauth/token"
+  to     = "/.netlify/functions/oauth-token"
+  status = 200
+  force  = true
