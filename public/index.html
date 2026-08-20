@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Swapcard MCP Server</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0f1117;
+      color: #e2e8f0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+    }
+    .card {
+      max-width: 640px;
+      width: 100%;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #1a2a1a;
+      border: 1px solid #2d6a2d;
+      color: #4ade80;
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 999px;
+      margin-bottom: 1.5rem;
+    }
+    .dot { width: 7px; height: 7px; background: #4ade80; border-radius: 50%; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:0.4 } }
+    h1 { font-size: 2rem; font-weight: 700; margin-bottom: 0.5rem; }
+    h1 span { color: #7c3aed; }
+    .sub { color: #94a3b8; margin-bottom: 2rem; line-height: 1.6; }
+    .endpoint-box {
+      background: #1e2130;
+      border: 1px solid #2d3450;
+      border-radius: 10px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 2rem;
+    }
+    .endpoint-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: #64748b; margin-bottom: 6px; }
+    .endpoint-url {
+      font-family: "SF Mono", "Fira Code", monospace;
+      font-size: 0.95rem;
+      color: #a78bfa;
+      word-break: break-all;
+    }
+    .section-title { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.1em; color: #64748b; margin-bottom: 0.75rem; }
+    .tools-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.5rem;
+      margin-bottom: 2rem;
+    }
+    .tool-group {
+      background: #1e2130;
+      border: 1px solid #2d3450;
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+    }
+    .tool-group-name { font-size: 0.8rem; font-weight: 600; color: #a78bfa; margin-bottom: 4px; }
+    .tool-count { font-size: 0.75rem; color: #64748b; }
+    .test-block {
+      background: #1e2130;
+      border: 1px solid #2d3450;
+      border-radius: 10px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 1rem;
+    }
+    .test-block pre {
+      font-family: "SF Mono", "Fira Code", monospace;
+      font-size: 0.78rem;
+      color: #94a3b8;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .copy-btn {
+      background: #2d3450;
+      border: none;
+      color: #94a3b8;
+      font-size: 0.72rem;
+      padding: 4px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      float: right;
+      margin-top: -2px;
+    }
+    .copy-btn:hover { background: #3d4560; color: #e2e8f0; }
+    .footer { text-align: center; color: #475569; font-size: 0.8rem; margin-top: 2rem; }
+    .footer a { color: #7c3aed; text-decoration: none; }
+    .footer a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge"><span class="dot"></span> MCP Server Online</div>
+    <h1>Swapcard <span>MCP</span></h1>
+    <p class="sub">A Model Context Protocol server exposing the full Swapcard API — events, people, sessions, exhibitors, documents, custom fields, meetings, webhooks, leads, and analytics.</p>
+
+    <div class="endpoint-box">
+      <div class="endpoint-label">MCP Endpoint</div>
+      <div class="endpoint-url" id="endpoint">https://swapcard-mcp.netlify.app/mcp</div>
+    </div>
+
+    <div class="section-title">32 tools across 10 categories</div>
+    <div class="tools-grid">
+      <div class="tool-group"><div class="tool-group-name">Events</div><div class="tool-count">2 tools</div></div>
+      <div class="tool-group"><div class="tool-group-name">People</div><div class="tool-count">3 tools</div></div>
+      <div class="tool-group"><div class="tool-group-name">Sessions</div><div class="tool-count">3 tools</div></div>
+      <div class="tool-group"><div class="tool-group-name">Exhibitors</div><div class="tool-count">4 tools</div></div>
+      <div class="tool-group"><div class="tool-group-name">Documents</div><div class="tool-count">6 tools</div></div>
+      <div class="tool-group"><div class="tool-group-name">Custom Fields</div><div class="tool-count">5 tools</div></div>
+      <div class="tool-group"><div class="tool-group-name">Meetings</div><div class="tool-count">1 tool</div></div>
+      <div class="tool-group"><div class="tool-group-name">Webhooks</div><div class="tool-count">4 tools</div></div>
+      <div class="tool-group"><div class="tool-group-name">Leads</div><div class="tool-count">3 tools</div></div>
+      <div class="tool-group"><div class="tool-group-name">Analytics</div><div class="tool-count">1 tool</div></div>
+    </div>
+
+    <div class="section-title">Quick test</div>
+    <div class="test-block">
+      <button class="copy-btn" onclick="copy(this, 'curl1')">Copy</button>
+      <pre id="curl1">curl -s -X POST https://swapcard-mcp.netlify.app/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | jq .</pre>
+    </div>
+    <div class="test-block">
+      <button class="copy-btn" onclick="copy(this, 'curl2')">Copy</button>
+      <pre id="curl2">curl -s https://swapcard-mcp.netlify.app/mcp</pre>
+    </div>
+
+    <div class="footer">
+      <a href="https://github.com/klajdishira/Swapcard-MCP">GitHub</a> &nbsp;·&nbsp;
+      Built with the <a href="https://modelcontextprotocol.io">Model Context Protocol</a>
+    </div>
+  </div>
+
+  <script>
+    function copy(btn, id) {
+      navigator.clipboard.writeText(document.getElementById(id).textContent.trim());
+      btn.textContent = 'Copied!';
+      setTimeout(() => btn.textContent = 'Copy', 1500);
+    }
+  </script>
+</body>
+</html>
