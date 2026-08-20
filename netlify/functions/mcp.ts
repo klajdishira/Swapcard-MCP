@@ -1,5 +1,5 @@
 import type { Config } from "@netlify/functions";
-import { tools, handlers } from "../../src/server.js";
+import { tools, handlers } from "../../src/tools.js";
 import { verifySignedToken } from "../../src/crypto.js";
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
