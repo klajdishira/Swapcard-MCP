@@ -3,6 +3,9 @@
   publish   = "public"
   functions = "functions-built"
 
+[functions]
+  timeout = 26
+
 [[redirects]]
   from   = "/mcp"
   to     = "/.netlify/functions/mcp"

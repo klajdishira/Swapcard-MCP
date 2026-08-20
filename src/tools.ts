@@ -10,35 +10,56 @@ function tok(key: string): string {
 
 // ─── HTTP helpers ─────────────────────────────────────────────────────────────
 
+const FETCH_TIMEOUT_MS = 20_000;
+
+function withTimeout(ms: number): AbortSignal {
+  return AbortSignal.timeout(ms);
+}
+
 export async function gql(
   url: string,
   authToken: string,
   query: string,
   variables: Record<string, unknown> = {},
 ): Promise<unknown> {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: authToken },
-    body: JSON.stringify({ query, variables }),
-  });
+  if (!authToken) throw new Error("Missing API token. Set the required environment variable in Netlify.");
+  const bearerToken = authToken.startsWith("Bearer ") ? authToken : `Bearer ${authToken}`;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: bearerToken },
+      body: JSON.stringify({ query, variables }),
+      signal: withTimeout(FETCH_TIMEOUT_MS),
+    });
+  } catch (e: unknown) {
+    const name = (e instanceof Error) ? e.name : "";
+    throw new Error(name === "TimeoutError" ? `Swapcard API timed out after ${FETCH_TIMEOUT_MS / 1000}s` : `Network error: ${String(e)}`);
+  }
   const text = await res.text();
-  if (!res.ok) throw new Error(`HTTP ${res.status}: ${text}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${text.slice(0, 500)}`);
   const json = JSON.parse(text) as { data?: unknown; errors?: unknown[] };
-  if (json.errors?.length) throw new Error(JSON.stringify(json.errors, null, 2));
+  if (json.errors?.length) throw new Error(JSON.stringify(json.errors));
   return json.data;
 }
 
 async function restPost(body: Record<string, unknown>): Promise<unknown> {
-  const res = await fetch(ANALYTICS_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${tok("SWAPCARD_ANALYTICS_TOKEN") || tok("SWAPCARD_CONTENT_TOKEN")}`,
-    },
-    body: JSON.stringify(body),
-  });
+  const token = tok("SWAPCARD_ANALYTICS_TOKEN") || tok("SWAPCARD_CONTENT_TOKEN");
+  if (!token) throw new Error("Missing API token. Set SWAPCARD_ANALYTICS_TOKEN or SWAPCARD_CONTENT_TOKEN in Netlify.");
+  let res: Response;
+  try {
+    res = await fetch(ANALYTICS_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+      signal: withTimeout(FETCH_TIMEOUT_MS),
+    });
+  } catch (e: unknown) {
+    const name = (e instanceof Error) ? e.name : "";
+    throw new Error(name === "TimeoutError" ? `Analytics API timed out after ${FETCH_TIMEOUT_MS / 1000}s` : `Network error: ${String(e)}`);
+  }
   const text = await res.text();
-  if (!res.ok) throw new Error(`HTTP ${res.status}: ${text}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${text.slice(0, 500)}`);
   return JSON.parse(text);
 }
 
@@ -587,11 +608,11 @@ reg("swapcard_update_document", async (a) =>
     }
   `, { id: a.id, document: { name: a.name, url: a.url, description: a.description } }));
 
-reg("swapcard_get_custom_fields", async (a) =>
-  gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
-    query GetCustomFields($eventId: ID!, $target: CustomFieldTarget) {
+reg("swapcard_get_custom_fields", async (a) => {
+  const data = await gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
+    query GetCustomFields($eventId: ID!) {
       eventById(eventId: $eventId) {
-        fieldDefinitions(target: $target) {
+        fieldDefinitions {
           ... on TextFieldDefinition { id name type isEditable isVisible }
           ... on LongTextFieldDefinition { id name type isEditable isVisible maxCharacters }
           ... on NumberFieldDefinition { id name type isEditable isVisible }
@@ -605,7 +626,19 @@ reg("swapcard_get_custom_fields", async (a) =>
         }
       }
     }
-  `, { eventId: a.eventId, target: a.target }));
+  `, { eventId: a.eventId }) as { eventById?: { fieldDefinitions?: Array<{ type?: string }> } };
+  const fields = data?.eventById?.fieldDefinitions ?? [];
+  // filter client-side if target requested (avoids schema version differences)
+  if (a.target) {
+    const targetMap: Record<string, string[]> = {
+      PEOPLE: ["PEOPLE", "PERSON"], EXHIBITORS: ["EXHIBITORS", "EXHIBITOR"],
+      PLANNING: ["PLANNING", "SESSION"], PRODUCT: ["PRODUCT", "ITEM"],
+    };
+    const allowed = targetMap[a.target as string] ?? [a.target as string];
+    return { eventById: { fieldDefinitions: fields.filter(f => allowed.includes(f.type ?? "")) } };
+  }
+  return data;
+});
 
 reg("swapcard_get_select_field_options", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
