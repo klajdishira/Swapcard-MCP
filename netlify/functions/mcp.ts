@@ -42,15 +42,14 @@ export const handler = async (event: Evt): Promise<Res> => {
 
   const { id, method, params = {} } = body;
 
+  // initialize and ping are protocol-level — never require auth
   if (method === "initialize") {
-    if (!checkAuth(event.headers) && process.env.SWAPCARD_OAUTH_SECRET) {
-      return j(401, { error: "Unauthorized" }, { "WWW-Authenticate": 'Bearer realm="swapcard-mcp" error="invalid_token"' });
-    }
     return j(200, { jsonrpc: "2.0", id, result: { protocolVersion: "2025-03-26", capabilities: { tools: {} }, serverInfo: { name: "swapcard-mcp", version: "1.0.0" } } });
   }
 
   if (method === "notifications/initialized" || method === "ping") return { statusCode: 204, headers: CORS, body: "" };
 
+  // All tool methods require a valid Bearer token (when SWAPCARD_OAUTH_SECRET is set)
   if (!checkAuth(event.headers)) {
     return j(401, { error: "Unauthorized" }, { "WWW-Authenticate": 'Bearer realm="swapcard-mcp" error="invalid_token"' });
   }
