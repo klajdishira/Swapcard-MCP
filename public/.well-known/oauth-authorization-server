@@ -2,6 +2,7 @@
   "issuer": "https://swapcard-mcp.netlify.app",
   "authorization_endpoint": "https://swapcard-mcp.netlify.app/oauth/authorize",
   "token_endpoint": "https://swapcard-mcp.netlify.app/oauth/token",
+  "registration_endpoint": "https://swapcard-mcp.netlify.app/oauth/register",
   "token_endpoint_auth_methods_supported": ["none"],
   "response_types_supported": ["code"],
   "grant_types_supported": ["authorization_code"],

@@ -23,3 +23,9 @@
   to     = "/.netlify/functions/oauth-token"
   status = 200
   force  = true
+
+[[redirects]]
+  from   = "/oauth/register"
+  to     = "/.netlify/functions/oauth-register"
+  status = 200
+  force  = true
