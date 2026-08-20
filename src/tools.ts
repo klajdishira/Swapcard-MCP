@@ -441,7 +441,7 @@ export const tools: ToolDef[] = [
 reg("swapcard_get_event", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     query GetEvent($eventId: ID!) {
-      eventById(eventId: $eventId) {
+      event(id: $eventId) {
         id slug title beginsAt endsAt createdAt updatedAt language timezone
         htmlDescription isLive totalPlannings totalExhibitors totalSpeakers
         banner { imageUrl }
@@ -454,8 +454,8 @@ reg("swapcard_get_event", async (a) =>
 
 reg("swapcard_get_events", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
-    query GetEvents($eventIds: [ID!]!) {
-      events(eventIds: $eventIds) {
+    query GetEvents($eventIds: [String!]) {
+      events(ids: $eventIds) {
         id slug title beginsAt endsAt language timezone isLive
         totalPlannings totalExhibitors totalSpeakers
         address { place street city zipCode state country }
@@ -533,7 +533,7 @@ reg("swapcard_list_exhibitors", async (a) =>
     query ListExhibitors($communityId: ID!, $search: String, $cursor: CursorPaginationInput, $filter: CommunityExhibitorsFilterInput, $sort: EventExhibitorsSortInput) {
       exhibitorsV2(communityId: $communityId, search: $search, cursor: $cursor, filter: $filter, sort: $sort) {
         pageInfo { endCursor hasNextPage totalItems }
-        nodes { id name logoUrl websiteUrl description email clientIds createdAt updatedAt address }
+        nodes { id name logoUrl websiteUrl description email clientIds createdAt updatedAt address { place street city zipCode state country } }
       }
     }
   `, { communityId: a.communityId, search: a.search, cursor: a.first ? { first: a.first, ...(a.after ? { after: a.after } : {}) } : undefined, filter: a.filter, sort: a.sort }));
@@ -569,28 +569,33 @@ reg("swapcard_delete_exhibitors", async (a) =>
 reg("swapcard_list_event_documents", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     query ListEventDocuments($eventId: ID!, $page: Int!) {
-      EventDocuments(eventId: $eventId, page: $page) { pageInfo { endCursor totalItems } results { id name description type url } }
+      event(id: $eventId) {
+        documents(page: $page, pageSize: 100) {
+          pageInfo { endCursor totalItems }
+          results { id name description type url }
+        }
+      }
     }
   `, { eventId: a.eventId, page: a.page ?? 1 }));
 
 reg("swapcard_create_event_document", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation CreateEventDocument($eventId: ID!, $document: CreateDocumentInput!) {
-      CreateEventDocument(eventId: $eventId, document: $document) { id name description type url }
+      createEventDocument(eventId: $eventId, document: $document) { id name description type url }
     }
   `, { eventId: a.eventId, document: { name: a.name, url: a.url, description: a.description } }));
 
 reg("swapcard_update_event_document", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation UpdateEventDocument($documentId: ID!, $document: UpdateDocumentInput!) {
-      UpdateEventDocument(documentId: $documentId, document: $document) { id name description type url }
+      updateEventDocument(id: $documentId, document: $document) { id name description type url }
     }
   `, { documentId: a.documentId, document: { name: a.name, url: a.url, description: a.description } }));
 
 reg("swapcard_delete_event_documents", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation DeleteEventDocuments($eventId: ID!, $documentIds: [ID!]!) {
-      DeleteEventDocument(eventId: $eventId, documentIds: $documentIds)
+      deleteEventDocument(eventId: $eventId, ids: $documentIds)
     }
   `, { eventId: a.eventId, documentIds: a.documentIds }));
 
@@ -608,11 +613,11 @@ reg("swapcard_update_document", async (a) =>
     }
   `, { id: a.id, document: { name: a.name, url: a.url, description: a.description } }));
 
-reg("swapcard_get_custom_fields", async (a) => {
-  const data = await gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
-    query GetCustomFields($eventId: ID!) {
-      eventById(eventId: $eventId) {
-        fieldDefinitions {
+reg("swapcard_get_custom_fields", async (a) =>
+  gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
+    query GetCustomFields($eventId: ID!, $target: FieldDefinitionTargetEnum) {
+      event(id: $eventId) {
+        fieldDefinitions(target: $target) {
           ... on TextFieldDefinition { id name type isEditable isVisible }
           ... on LongTextFieldDefinition { id name type isEditable isVisible maxCharacters }
           ... on NumberFieldDefinition { id name type isEditable isVisible }
@@ -626,24 +631,12 @@ reg("swapcard_get_custom_fields", async (a) => {
         }
       }
     }
-  `, { eventId: a.eventId }) as { eventById?: { fieldDefinitions?: Array<{ type?: string }> } };
-  const fields = data?.eventById?.fieldDefinitions ?? [];
-  // filter client-side if target requested (avoids schema version differences)
-  if (a.target) {
-    const targetMap: Record<string, string[]> = {
-      PEOPLE: ["PEOPLE", "PERSON"], EXHIBITORS: ["EXHIBITORS", "EXHIBITOR"],
-      PLANNING: ["PLANNING", "SESSION"], PRODUCT: ["PRODUCT", "ITEM"],
-    };
-    const allowed = targetMap[a.target as string] ?? [a.target as string];
-    return { eventById: { fieldDefinitions: fields.filter(f => allowed.includes(f.type ?? "")) } };
-  }
-  return data;
-});
+  `, { eventId: a.eventId, target: a.target ?? null }));
 
 reg("swapcard_get_select_field_options", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     query GetSelectFieldOptions($eventId: ID!) {
-      eventById(eventId: $eventId) {
+      event(id: $eventId) {
         fieldDefinitions {
           ... on SelectFieldDefinition { id name optionsValues { id value } }
           ... on MultipleSelectFieldDefinition { id name optionsValues { id value } }
@@ -685,7 +678,7 @@ reg("swapcard_list_meetings", async (a) =>
 
 reg("swapcard_list_webhooks", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
-    query ListWebhooks($eventId: ID!) { eventById(eventId: $eventId) { webhooks { id endpoint hooks } } }
+    query ListWebhooks($eventId: ID!) { event(id: $eventId) { webhooks { id endpoint hooks } } }
   `, { eventId: a.eventId }));
 
 reg("swapcard_create_webhook", async (a) =>
