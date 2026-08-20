@@ -1,0 +1,9 @@
+[build]
+  command   = "npm run build"
+  publish   = "public"
+
+[functions]
+  node_bundler = "esbuild"
+
+[functions."mcp"]
+  included_files = ["src/**"]
