@@ -64,13 +64,261 @@ async function restPost(body: Record<string, unknown>): Promise<unknown> {
   return JSON.parse(text);
 }
 
+// ─── Semantic layer ────────────────────────────────────────────────────────────
+
+type Rec = Record<string, unknown>;
+
+// Resolve custom field value regardless of aliased type
+function resolveFieldValue(f: Rec): unknown {
+  return f.value ?? f.numberValue ?? f.msValue ?? (f.treeNode as Rec | null)?.value ?? f.mediaValue ?? null;
+}
+
+// Flatten EventPerson.fields[] into clean [{name, value}] pairs, omit nulls
+function normalizeCustomFields(fields: Rec[]): { name: string; value: unknown }[] {
+  return fields
+    .map((f) => ({ name: String((f.definition as Rec)?.name ?? ""), value: resolveFieldValue(f) }))
+    .filter((f) => f.name && f.value != null && f.value !== "");
+}
+
+// Convert SCREAMING_SNAKE or en_US locale codes to readable labels
+function humanEnum(s: string | null | undefined): string {
+  if (!s) return "";
+  return s.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// Strip keys whose value is null/undefined/empty-array, recursively
+function compact<T>(obj: T): T {
+  if (Array.isArray(obj)) return obj.map(compact) as unknown as T;
+  if (obj && typeof obj === "object") {
+    const out: Rec = {};
+    for (const [k, v] of Object.entries(obj as Rec)) {
+      if (v == null) continue;
+      if (Array.isArray(v) && v.length === 0) continue;
+      const cv = compact(v);
+      out[k] = cv;
+    }
+    return out as T;
+  }
+  return obj;
+}
+
+// Normalize a single EventPerson node
+function normalizePerson(n: Rec): Rec {
+  const fields = Array.isArray(n.fields) ? normalizeCustomFields(n.fields as Rec[]) : [];
+  const phones = Array.isArray(n.phoneNumbers)
+    ? (n.phoneNumbers as Rec[]).map((p) => p.formattedNumber ?? p.number).filter(Boolean)
+    : [];
+  const social = Array.isArray(n.socialNetworks)
+    ? (n.socialNetworks as Rec[]).map((s) => `${s.type}: ${s.profile}`).filter((s) => !s.startsWith("undefined"))
+    : [];
+  const groups = Array.isArray(n.groups)
+    ? (n.groups as Rec[]).map((g) => g.name).filter(Boolean)
+    : [];
+  return compact({
+    id: n.id,
+    email: n.email,
+    firstName: n.firstName,
+    lastName: n.lastName,
+    jobTitle: n.jobTitle,
+    organization: n.organization,
+    biography: n.biography,
+    photoUrl: n.photoUrl,
+    websiteUrl: n.websiteUrl,
+    isVisible: n.isVisible,
+    source: n.source,
+    createdAt: n.createdAt,
+    updatedAt: n.updatedAt,
+    userId: n.userId,
+    clientIds: n.clientIds,
+    phones: phones.length ? phones : undefined,
+    socialNetworks: social.length ? social : undefined,
+    groups: groups.length ? groups : undefined,
+    customFields: fields.length ? fields : undefined,
+  });
+}
+
+// Normalize a planning/session node
+function normalizePlanning(n: Rec): Rec {
+  return compact({
+    id: n.id,
+    title: n.title,
+    description: n.description,
+    place: n.place,
+    beginsAt: n.beginsAt,
+    endsAt: n.endsAt,
+    format: n.format ? humanEnum(String(n.format)) : undefined,
+    type: n.type ? humanEnum(String(n.type)) : undefined,
+    isPrivate: n.isPrivate,
+    isRatable: n.isRatable,
+    totalAttendees: n.totalAttendees,
+    clientIds: n.clientIds,
+    speakerCount: Array.isArray(n.speakers) ? n.speakers.length : undefined,
+    exhibitorCount: Array.isArray(n.exhibitors) ? n.exhibitors.length : undefined,
+    events: Array.isArray((n.events as Rec | undefined)?.nodes) ? ((n.events as Rec).nodes as Rec[]).map((e) => e.title) : undefined,
+  });
+}
+
+// Normalize an exhibitor node
+function normalizeExhibitor(n: Rec): Rec {
+  const addr = n.address as Rec | null;
+  const addressStr = addr
+    ? [addr.street, addr.city, addr.state, addr.country].filter(Boolean).join(", ")
+    : undefined;
+  return compact({
+    id: n.id,
+    name: n.name,
+    description: n.description,
+    email: n.email,
+    websiteUrl: n.websiteUrl,
+    logoUrl: n.logoUrl,
+    address: addressStr,
+    clientIds: n.clientIds,
+    createdAt: n.createdAt,
+    updatedAt: n.updatedAt,
+  });
+}
+
+// Top-level response normalizer — walks well-known keys
+function semanticize(data: unknown): unknown {
+  if (!data || typeof data !== "object") return data;
+  const d = data as Rec;
+
+  // eventPerson query
+  if (d.eventPerson && typeof d.eventPerson === "object") {
+    const ep = d.eventPerson as Rec;
+    const nodes = Array.isArray(ep.nodes) ? ep.nodes.map((n) => normalizePerson(n as Rec)) : [];
+    const pi = ep.pageInfo as Rec | undefined;
+    return {
+      people: nodes,
+      total: pi?.totalItems,
+      hasNextPage: pi?.hasNextPage,
+      nextCursor: pi?.endCursor,
+    };
+  }
+
+  // planningsV2 query
+  if (d.planningsV2 && typeof d.planningsV2 === "object") {
+    const pv = d.planningsV2 as Rec;
+    const nodes = Array.isArray(pv.nodes) ? pv.nodes.map((n) => normalizePlanning(n as Rec)) : [];
+    const pi = pv.pageInfo as Rec | undefined;
+    return { sessions: nodes, total: pi?.totalItems, hasNextPage: pi?.hasNextPage, nextCursor: pi?.endCursor };
+  }
+
+  // exhibitorsV2 query
+  if (d.exhibitorsV2 && typeof d.exhibitorsV2 === "object") {
+    const ev = d.exhibitorsV2 as Rec;
+    const nodes = Array.isArray(ev.nodes) ? ev.nodes.map((n) => normalizeExhibitor(n as Rec)) : [];
+    const pi = ev.pageInfo as Rec | undefined;
+    return { exhibitors: nodes, total: pi?.totalItems, hasNextPage: pi?.hasNextPage, nextCursor: pi?.endCursor };
+  }
+
+  // event query — custom fields
+  if (d.event && (d.event as Rec).fieldDefinitions !== undefined) {
+    const ev = d.event as Rec;
+    const defs = Array.isArray(ev.fieldDefinitions)
+      ? (ev.fieldDefinitions as Rec[]).map((f) => compact({
+          id: f.id,
+          name: f.name,
+          type: humanEnum(String(f.type ?? "")),
+          target: f.target ? humanEnum(String(f.target)) : undefined,
+          isEditable: f.isEditable,
+          isVisible: f.isVisible,
+          maxCharacters: f.maxCharacters,
+          options: Array.isArray(f.optionsValues)
+            ? (f.optionsValues as Rec[]).map((o) => ({ id: o.id, label: o.value }))
+            : undefined,
+        }))
+      : [];
+    return { eventId: ev.id, customFieldDefinitions: defs, count: defs.length };
+  }
+
+  // meetingsV2 query
+  if (d.meetingsV2 && typeof d.meetingsV2 === "object") {
+    const mv = d.meetingsV2 as Rec;
+    const nodes = Array.isArray(mv.nodes)
+      ? (mv.nodes as Rec[]).map((n) => compact({
+          id: n.id,
+          status: humanEnum(String(n.status ?? "")),
+          source: humanEnum(String(n.source ?? "")),
+          description: n.description,
+          slot: n.slot,
+          location: n.location,
+          organizer: n.organizer,
+        }))
+      : [];
+    const pi = mv.pageInfo as Rec | undefined;
+    return { meetings: nodes, total: pi?.totalItems, hasNextPage: pi?.hasNextPage, nextCursor: pi?.endCursor };
+  }
+
+  // sponsors query
+  if (Array.isArray(d.sponsors)) {
+    return {
+      sponsors: (d.sponsors as Rec[]).map((s) => compact({
+        id: s.id,
+        name: s.name,
+        logoUrl: s.logoUrl,
+        mode: s.mode ? humanEnum(String(s.mode)) : undefined,
+        type: s.type ? humanEnum(String(s.type)) : undefined,
+        externalUrl: s.externalUrl,
+      })),
+      count: (d.sponsors as Rec[]).length,
+    };
+  }
+
+  // communities query
+  if (d.communities && typeof d.communities === "object") {
+    const cv = d.communities as Rec;
+    const nodes = Array.isArray(cv.nodes) ? cv.nodes : [];
+    const pi = cv.pageInfo as Rec | undefined;
+    return { communities: nodes, total: pi?.totalItems, hasNextPage: pi?.hasNextPage, nextCursor: pi?.endCursor };
+  }
+
+  // event query — general (webhooks, documents, groups, etc.)
+  if (d.event && typeof d.event === "object") {
+    return compact(d.event as Rec);
+  }
+
+  // events query (array)
+  if (Array.isArray(d.events)) {
+    return { events: compact(d.events) };
+  }
+
+  // leads query
+  if (d.leads && typeof d.leads === "object") {
+    const leads = d.leads as Rec;
+    const contacts = (leads.contacts as Rec | undefined);
+    const nodes = Array.isArray(contacts?.nodes)
+      ? (contacts!.nodes as Rec[]).map((c) => compact({
+          id: c.id,
+          connectedAt: c.connectedAt,
+          rating: c.rating,
+          note: c.note,
+          isScanned: c.isScanned,
+          event: (c.connectedAtEvent as Rec | undefined)?.title,
+          owner: c.owner,
+          target: c.target,
+          customFields: Array.isArray(c.customFields)
+            ? (c.customFields as Rec[]).map((f) => ({
+                name: (f.definition as Rec | undefined)?.name,
+                value: f.value,
+              })).filter((f) => f.value != null)
+            : undefined,
+        }))
+      : [];
+    return { leads: nodes, total: (contacts?.pageInfo as Rec | undefined)?.totalItems };
+  }
+
+  // Fallback — compact nulls and return
+  return compact(d);
+}
+
 // ─── Tool registry ────────────────────────────────────────────────────────────
 
 export type ToolHandler = (args: Record<string, unknown>) => Promise<unknown>;
 export const handlers = new Map<string, ToolHandler>();
 
 function reg(name: string, handler: ToolHandler) {
-  handlers.set(name, handler);
+  handlers.set(name, async (args) => semanticize(await handler(args)));
 }
 
 // ─── Tool definitions ─────────────────────────────────────────────────────────
