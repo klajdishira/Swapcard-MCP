@@ -13,7 +13,7 @@ const CORS = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization, Mcp-Session-Id, Accept",
 };
 
-const WWW_AUTH = 'Bearer realm="swapcard-mcp", resource_metadata="https://swapcard-mcp.netlify.app/.well-known/oauth-authorization-server"';
+const WWW_AUTH = 'Bearer realm="swapcard-mcp", resource_metadata="https://swapcard-mcp.netlify.app/.well-known/oauth-protected-resource"';
 
 function j(code: number, data: unknown, extra: Record<string, string> = {}): Res {
   return { statusCode: code, headers: { ...CORS, "Content-Type": "application/json", ...extra }, body: JSON.stringify(data) };
