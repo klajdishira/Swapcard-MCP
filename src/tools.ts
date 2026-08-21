@@ -416,7 +416,7 @@ export const tools: ToolDef[] = [
   },
   {
     name: "swapcard_import_event_people",
-    description: "Create or update attendees/people in bulk. Supports groups, barcodes, speaker roles, exhibitor memberships, and custom fields.",
+    description: "Create or update attendees/people in bulk. In the 'create' object, 'isUser' (boolean) and 'firstName'/'lastName' are required. Supports groups, barcodes, speaker roles, exhibitor memberships, and custom fields.",
     inputSchema: {
       type: "object",
       properties: {
@@ -490,7 +490,7 @@ export const tools: ToolDef[] = [
   },
   {
     name: "swapcard_import_sessions",
-    description: "Create or update sessions/plannings in bulk. Supports all formats, video types, access control, and custom fields.",
+    description: "Create or update sessions/plannings in bulk. Each item needs clientId and a 'create' object containing titleTranslations (required) and other fields.",
     inputSchema: {
       type: "object",
       properties: {
@@ -502,15 +502,23 @@ export const tools: ToolDef[] = [
             type: "object",
             properties: {
               clientId: { type: "string" },
-              titleTranslations: { type: "array", items: { type: "object", properties: { language: { type: "string" }, value: { type: "string" } } } },
-              descriptionTranslations: { type: "array", items: { type: "object", properties: { language: { type: "string" }, value: { type: "string" } } } },
-              beginsAt: { type: "string" }, endsAt: { type: "string" }, isRatable: { type: "boolean" },
-              bannerUrl: { type: "string" }, canRegister: { type: "boolean" }, isPrivate: { type: "boolean" },
-              maxSeats: { type: "number" }, hashtag: { type: "string" },
-              format: { type: "string", enum: ["PHYSICAL","LIVE_STREAM","ON_DEMAND","PRE_RECORDED","ROUNDTABLE"] },
-              exhibitors: { type: "array", items: { type: "string" } },
+              id: { type: "string", description: "Provide to update an existing session" },
+              create: {
+                type: "object",
+                description: "Fields for creating the session",
+                properties: {
+                  titleTranslations: { type: "array", items: { type: "object", properties: { language: { type: "string" }, value: { type: "string" } } } },
+                  descriptionTranslations: { type: "array", items: { type: "object", properties: { language: { type: "string" }, value: { type: "string" } } } },
+                  beginsAt: { type: "string" }, endsAt: { type: "string" },
+                  isRatable: { type: "boolean" }, isPrivate: { type: "boolean" },
+                  maxSeats: { type: "number" }, hashtag: { type: "string" },
+                  bannerUrl: { type: "string" },
+                },
+                required: ["titleTranslations"],
+              },
+              update: { type: "object", description: "Fields to update on an existing session" },
             },
-            required: ["clientId", "titleTranslations", "descriptionTranslations", "beginsAt", "endsAt"],
+            required: ["clientId"],
           },
         },
       },
@@ -1011,17 +1019,25 @@ export const tools: ToolDef[] = [
   // ── Ticket Types ──────────────────────────────────────────────────────────────
   {
     name: "swapcard_create_ticket_type",
-    description: "Create a new ticket type for an event.",
+    description: "Create a new ticket type for an event. Requires eventGroupId (the event group this ticket belongs to), startsAt/endsAt (ISO8601 datetimes), and isVisible.",
     inputSchema: {
       type: "object",
       properties: {
         name: { type: "string" },
+        eventGroupId: { type: "string", description: "Required: ID of the event group for this ticket type" },
+        startsAt: { type: "string", description: "Required: ISO8601 datetime when ticket sales start" },
+        endsAt: { type: "string", description: "Required: ISO8601 datetime when ticket sales end" },
+        isVisible: { type: "boolean", description: "Required: whether ticket is publicly visible" },
         description: { type: "string" },
         htmlDescription: { type: "string" },
         freeLabel: { type: "string" },
         showFreeLabel: { type: "boolean" },
+        quantity: { type: "number" },
+        priceCents: { type: "number" },
+        isModerated: { type: "boolean" },
+        translations: { type: "array", items: { type: "object" }, description: "Required: translations array (can be empty [])" },
       },
-      required: ["name"],
+      required: ["name", "eventGroupId", "startsAt", "endsAt", "isVisible"],
     },
   },
   {
@@ -1754,7 +1770,18 @@ reg("swapcard_get_select_field_options", async (a) =>
 reg("swapcard_create_custom_field", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation CreateCustomField($input: CreateFieldDefinitionV2Input!) {
-      createFieldDefinition(input: $input) { fieldDefinition { id name } }
+      createFieldDefinition(input: $input) { fieldDefinition {
+        ... on TextFieldDefinition { id name type }
+        ... on NumberFieldDefinition { id name type }
+        ... on SelectFieldDefinition { id name type }
+        ... on MultipleSelectFieldDefinition { id name type }
+        ... on DateFieldDefinition { id name type }
+        ... on UrlFieldDefinition { id name type }
+        ... on LongTextFieldDefinition { id name type }
+        ... on MultipleTextFieldDefinition { id name type }
+        ... on MediaFieldDefinition { id name type }
+        ... on TreeFieldDefinition { id name type }
+      } }
     }
   `, { input: { eventId: a.eventId, name: a.name, target: a.target, type: a.type, isEditable: a.isEditable ?? true, isVisible: a.isVisible ?? true, translations: a.translations } }));
 
@@ -1775,7 +1802,11 @@ reg("swapcard_delete_custom_fields", async (a) =>
 reg("swapcard_set_select_field_value", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation SetSelectFieldValue($input: SetSelectFieldValueInput!) {
-      setSelectFieldValue(input: $input) { selectField { id value } }
+      setSelectFieldValue(input: $input) { selectField {
+        ... on SelectField { id value }
+        ... on MultipleSelectField { id value }
+        ... on TreeField { id }
+      } }
     }
   `, { input: { fieldDefinitionId: a.fieldDefinitionId, key: a.key, fieldValueId: a.fieldValueId, translations: a.translations } }));
 
@@ -1828,7 +1859,8 @@ reg("swapcard_list_sponsors", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     query ListSponsors($eventId: String!, $ids: [String!], $search: String) {
       sponsors(eventId: $eventId, ids: $ids, search: $search) {
-        id name logoUrl mode type externalUrl category { id }
+        ... on Sponsor { id name logoUrl mode type externalUrl }
+        ... on SponsorExhibitor { id name logoUrl mode type }
       }
     }
   `, { eventId: a.eventId, ids: a.ids, search: a.search }));
@@ -1882,7 +1914,7 @@ reg("swapcard_create_ticket_type", async (a) =>
     mutation CreateTicketType($input: CreateTicketTypeInput!) {
       createTicketType(input: $input) { ticketType { id name quantity htmlDescription } }
     }
-  `, { input: { name: a.name, description: a.description, htmlDescription: a.htmlDescription, freeLabel: a.freeLabel, showFreeLabel: a.showFreeLabel } }));
+  `, { input: { name: a.name, eventGroupId: a.eventGroupId, startsAt: a.startsAt, endsAt: a.endsAt, isVisible: a.isVisible ?? true, translations: a.translations ?? [], description: a.description, htmlDescription: a.htmlDescription, freeLabel: a.freeLabel, showFreeLabel: a.showFreeLabel, quantity: a.quantity, priceCents: a.priceCents, isModerated: a.isModerated } }));
 
 reg("swapcard_update_ticket_type", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
