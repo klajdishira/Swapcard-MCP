@@ -1198,15 +1198,18 @@ reg("swapcard_list_event_people", async (a) =>
           phoneNumbers { formattedNumber type number }
           socialNetworks { profile type }
           groups { id name }
-          fieldValues {
+          fields {
+            __typename
             ... on TextField { id value definition { id name } }
             ... on LongTextField { id value definition { id name } }
-            ... on NumberField { id value definition { id name } }
-            ... on DateField { id value definition { id name } }
             ... on UrlField { id value definition { id name } }
+            ... on DateField { id value definition { id name } }
             ... on SelectField { id value definition { id name } }
-            ... on MultipleSelectField { id values definition { id name } }
-            ... on MultipleTextField { id values definition { id name } }
+            ... on MultipleTextField { id value definition { id name } }
+            ... on MediaField { id mediaValue: value fileName mimeType definition { id name } }
+            ... on TreeField { id treeNode: value { value } definition { id name } }
+            ... on NumberField { id numberValue: value definition { id name } }
+            ... on MultipleSelectField { id msValue: value definition { id name } }
           }
         }
       }
