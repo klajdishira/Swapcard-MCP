@@ -57,7 +57,7 @@ export const handler = async (event: Evt): Promise<Res> => {
     }
 
     const code = signedToken(
-      { code_challenge: challenge, redirect_uri: redirectUri, exp: Date.now() + 5 * 60 * 1000 },
+      { code_challenge: challenge, redirect_uri: redirectUri, exp: Date.now() + 15 * 60 * 1000 },
       SECRET(),
     );
     base.searchParams.set("code", code);

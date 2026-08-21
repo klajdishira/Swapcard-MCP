@@ -46,14 +46,17 @@ export const handler = async (event: Evt): Promise<Res> => {
     return j(400, { error: "invalid_grant", error_description: "PKCE verification failed" });
   }
 
-  if (payload.redirect_uri !== redirectUri) {
+  // Normalize before compare — trim whitespace and trailing slashes
+  const normalize = (u: string) => u.trim().replace(/\/+$/, "");
+  if (normalize(payload.redirect_uri as string ?? "") !== normalize(redirectUri)) {
     return j(400, { error: "invalid_grant", error_description: "redirect_uri mismatch" });
   }
 
+  const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
   const accessToken = signedToken(
-    { scope: "mcp", exp: Date.now() + 24 * 60 * 60 * 1000 },
+    { scope: "mcp", exp: Date.now() + THIRTY_DAYS },
     SECRET(),
   );
 
-  return j(200, { access_token: accessToken, token_type: "Bearer", expires_in: 86400, scope: "mcp" });
+  return j(200, { access_token: accessToken, token_type: "Bearer", expires_in: 30 * 86400, scope: "mcp" });
 };
