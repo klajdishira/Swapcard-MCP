@@ -47,18 +47,7 @@ export const handler = async (event: Evt): Promise<Res> => {
 
   const { id, method, params = {} } = body as { id?: unknown; method?: string; params?: Record<string, unknown> };
 
-  // Notifications and ping are fire-and-forget — no auth, no body
-  if (method === "ping" || (typeof method === "string" && method.startsWith("notifications/"))) {
-    return { statusCode: 204, headers: CORS, body: "" };
-  }
-
-  // Every other method (including initialize) requires auth when a secret is configured.
-  // Gating initialize forces Claude.ai to complete the OAuth flow before the MCP handshake,
-  // which means all subsequent calls (tools/list, tools/call) already have a valid token.
-  if (!checkAuth(event.headers)) {
-    return j(401, { error: "unauthorized" }, { "WWW-Authenticate": WWW_AUTH });
-  }
-
+  // Protocol-level methods — always succeed so Claude.ai can establish the session
   if (method === "initialize") {
     return j(200, {
       jsonrpc: "2.0", id,
@@ -68,6 +57,15 @@ export const handler = async (event: Evt): Promise<Res> => {
         serverInfo: { name: "swapcard-mcp", version: "1.0.0" },
       },
     });
+  }
+
+  if (method === "ping" || (typeof method === "string" && method.startsWith("notifications/"))) {
+    return { statusCode: 204, headers: CORS, body: "" };
+  }
+
+  // tools/list and tools/call require a valid Bearer token
+  if (!checkAuth(event.headers)) {
+    return j(401, { error: "unauthorized" }, { "WWW-Authenticate": WWW_AUTH });
   }
 
   if (method === "tools/list") {
