@@ -1,5 +1,4 @@
 import { tools, handlers } from "../../src/tools";
-import { verifySignedToken } from "../../src/crypto";
 
 interface Evt {
   httpMethod: string;
@@ -14,18 +13,8 @@ const CORS = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization, Mcp-Session-Id, Accept",
 };
 
-const WWW_AUTH = 'Bearer realm="swapcard-mcp", resource_metadata="https://swapcard-mcp.netlify.app/.well-known/oauth-protected-resource"';
-
-function j(code: number, data: unknown, extra: Record<string, string> = {}): Res {
-  return { statusCode: code, headers: { ...CORS, "Content-Type": "application/json", ...extra }, body: JSON.stringify(data) };
-}
-
-function checkAuth(headers: Record<string, string | undefined>): boolean {
-  const secret = process.env.SWAPCARD_OAUTH_SECRET;
-  if (!secret) return true; // open mode when secret not configured
-  const auth = headers["authorization"] ?? headers["Authorization"] ?? "";
-  if (!auth.startsWith("Bearer ")) return false;
-  return verifySignedToken(auth.slice(7), secret) !== null;
+function j(code: number, data: unknown): Res {
+  return { statusCode: code, headers: { ...CORS, "Content-Type": "application/json" }, body: JSON.stringify(data) };
 }
 
 export const handler = async (event: Evt): Promise<Res> => {
@@ -61,11 +50,6 @@ export const handler = async (event: Evt): Promise<Res> => {
 
   if (method === "ping" || (typeof method === "string" && method.startsWith("notifications/"))) {
     return { statusCode: 204, headers: CORS, body: "" };
-  }
-
-  // tools/list and tools/call require a valid Bearer token
-  if (!checkAuth(event.headers)) {
-    return j(401, { error: "unauthorized" }, { "WWW-Authenticate": WWW_AUTH });
   }
 
   if (method === "tools/list") {
