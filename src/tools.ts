@@ -647,24 +647,32 @@ reg("swapcard_get_select_field_options", async (a) =>
 
 reg("swapcard_create_custom_field", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
-    mutation CreateCustomField($eventId: ID!, $name: String!, $target: FieldDefinitionTarget!, $type: FieldDefinitionType!, $isEditable: Boolean, $isVisible: Boolean, $translations: [FieldDefinitionTranslationInput!]) {
-      createFieldDefinition(eventId: $eventId, name: $name, target: $target, type: $type, isEditable: $isEditable, isVisible: $isVisible, translations: $translations)
+    mutation CreateCustomField($input: CreateFieldDefinitionV2Input!) {
+      createFieldDefinition(input: $input) {
+        event { id }
+      }
     }
-  `, { eventId: a.eventId, name: a.name, target: a.target, type: a.type, isEditable: a.isEditable, isVisible: a.isVisible, translations: a.translations }));
+  `, { input: { eventId: a.eventId, name: a.name, target: a.target, type: a.type, isEditable: a.isEditable ?? true, isVisible: a.isVisible ?? true, translations: a.translations } }));
 
 reg("swapcard_update_custom_field", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
-    mutation UpdateCustomField($fieldDefinitionId: ID!, $isEditable: Boolean, $isVisible: Boolean, $maxCharacters: Int) {
-      updateFieldDefinition(fieldDefinitionId: $fieldDefinitionId, isEditable: $isEditable, isVisible: $isVisible, maxCharacters: $maxCharacters) { eventId errors }
+    mutation UpdateCustomField($input: UpdateFieldDefinitionV2Input!) {
+      updateFieldDefinition(input: $input) {
+        event { id }
+        errors { code }
+      }
     }
-  `, { fieldDefinitionId: a.fieldDefinitionId, isEditable: a.isEditable, isVisible: a.isVisible, maxCharacters: a.maxCharacters }));
+  `, { input: { fieldDefinitionId: a.fieldDefinitionId, isEditable: a.isEditable, isVisible: a.isVisible, maxCharacters: a.maxCharacters } }));
 
 reg("swapcard_delete_custom_fields", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
-    mutation DeleteCustomFields($eventId: ID!, $fieldDefinitionIds: [ID!]!) {
-      deleteFieldDefinitions(eventId: $eventId, fieldDefinitionIds: $fieldDefinitionIds)
+    mutation DeleteCustomFields($input: DeleteFieldDefinitionsInput!) {
+      deleteFieldDefinitions(input: $input) {
+        errors { code }
+        event { id }
+      }
     }
-  `, { eventId: a.eventId, fieldDefinitionIds: a.fieldDefinitionIds }));
+  `, { input: { eventId: a.eventId, fieldDefinitionIds: a.fieldDefinitionIds } }));
 
 reg("swapcard_list_meetings", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
