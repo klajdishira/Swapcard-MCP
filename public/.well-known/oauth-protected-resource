@@ -1,6 +1,0 @@
-{
-  "resource": "https://swapcard-mcp.netlify.app/mcp",
-  "authorization_servers": ["https://swapcard-mcp.netlify.app"],
-  "scopes_supported": ["mcp"],
-  "bearer_methods_supported": ["header"]
-}

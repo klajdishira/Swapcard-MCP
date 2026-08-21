@@ -13,8 +13,17 @@ const CORS = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization, Mcp-Session-Id, Accept",
 };
 
-function j(code: number, data: unknown): Res {
-  return { statusCode: code, headers: { ...CORS, "Content-Type": "application/json" }, body: JSON.stringify(data) };
+const WWW_AUTH = 'Bearer realm="swapcard-mcp", resource_metadata="https://swapcard-mcp.netlify.app/.well-known/oauth-authorization-server"';
+
+function j(code: number, data: unknown, extra: Record<string, string> = {}): Res {
+  return { statusCode: code, headers: { ...CORS, "Content-Type": "application/json", ...extra }, body: JSON.stringify(data) };
+}
+
+// Accepts any Bearer token — just checks one was sent (issued by our OAuth flow).
+// No expiry check: tokens are valid forever once issued.
+function hasToken(headers: Record<string, string | undefined>): boolean {
+  const auth = headers["authorization"] ?? headers["Authorization"] ?? "";
+  return auth.startsWith("Bearer ") && auth.length > 14;
 }
 
 export const handler = async (event: Evt): Promise<Res> => {
@@ -50,6 +59,13 @@ export const handler = async (event: Evt): Promise<Res> => {
 
   if (method === "ping" || (typeof method === "string" && method.startsWith("notifications/"))) {
     return { statusCode: 204, headers: CORS, body: "" };
+  }
+
+  // tools/list and tools/call need a Bearer token — Claude.ai obtains one via OAuth
+  if (method === "tools/list" || method === "tools/call") {
+    if (!hasToken(event.headers)) {
+      return j(401, { error: "unauthorized" }, { "WWW-Authenticate": WWW_AUTH });
+    }
   }
 
   if (method === "tools/list") {
