@@ -23,7 +23,8 @@ export async function gql(
   variables: Record<string, unknown> = {},
 ): Promise<unknown> {
   if (!authToken) throw new Error("Missing API token. Set the required environment variable in Netlify.");
-  const bearerToken = authToken.startsWith("Bearer ") ? authToken : `Bearer ${authToken}`;
+  // Swapcard expects the raw token as Authorization value — no Bearer/Basic prefix
+  const bearerToken = authToken.replace(/^(Bearer|Basic)\s+/i, "");
   let res: Response;
   try {
     res = await fetch(url, {
