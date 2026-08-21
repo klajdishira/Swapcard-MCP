@@ -573,13 +573,27 @@ export const tools: ToolDef[] = [
   },
   {
     name: "swapcard_upsert_exhibitors",
-    description: "Create or update exhibitors in an event (V2).",
+    description: "Create or update exhibitors in an event (V2). Each exhibitor must have inputId (your unique client reference ID used for idempotency).",
     inputSchema: {
       type: "object",
       properties: {
         eventId: { type: "string" },
         validateOnly: { type: "boolean" },
-        exhibitors: { type: "array", items: { type: "object", description: "ExhibitorInput fields" } },
+        exhibitors: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              inputId: { type: "string", description: "Required unique client reference ID for idempotency" },
+              name: { type: "string" },
+              description: { type: "string" },
+              logoUrl: { type: "string" },
+              websiteUrl: { type: "string" },
+              email: { type: "string" },
+            },
+            required: ["inputId", "name"],
+          },
+        },
       },
       required: ["eventId", "exhibitors"],
     },
@@ -967,7 +981,7 @@ export const tools: ToolDef[] = [
         description: { type: "string" },
         permissionIds: { type: "array", items: { type: "string" } },
         isDefault: { type: "boolean" },
-        type: { type: "string" },
+        type: { type: "string", enum: ["EXHIBITOR"], description: "Role permission type — only EXHIBITOR is valid" },
         translations: { type: "array", items: { type: "object" } },
       },
       required: ["communityId", "name", "type"],
@@ -1219,15 +1233,16 @@ export const tools: ToolDef[] = [
   },
   {
     name: "swapcard_create_webhook",
-    description: "Register a new webhook subscription for an event (endpoint and optional secret). Use updateWebhook to set hooks.",
+    description: "Register a new webhook subscription for an event. hooks is required. Valid hook types: PROFILE_CREATE, PROFILE_UPDATE, PROFILE_DELETE, EXHIBITOR_CREATE, EXHIBITOR_UPDATE, EXHIBITOR_DELETE, PLANNING_CREATE, PLANNING_UPDATE, PLANNING_DELETE, PLANNING_ATTENDEE_CREATE, PLANNING_ATTENDEE_DELETE, MEETING_CREATE, MEETING_UPDATE.",
     inputSchema: {
       type: "object",
       properties: {
         eventId: { type: "string" },
         endpoint: { type: "string" },
         secret: { type: "string" },
+        hooks: { type: "array", items: { type: "string", enum: ["PROFILE_CREATE","PROFILE_UPDATE","PROFILE_DELETE","EXHIBITOR_CREATE","EXHIBITOR_UPDATE","EXHIBITOR_DELETE","PLANNING_CREATE","PLANNING_UPDATE","PLANNING_DELETE","PLANNING_ATTENDEE_CREATE","PLANNING_ATTENDEE_DELETE","MEETING_CREATE","MEETING_UPDATE"] }, description: "Required: list of event types to subscribe to" },
       },
-      required: ["eventId", "endpoint"],
+      required: ["eventId", "endpoint", "hooks"],
     },
   },
   {
@@ -1472,9 +1487,7 @@ reg("swapcard_update_event_person", async (a) => {
   const { eventPersonId, ...rest } = a;
   return gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation UpdateEventPerson($input: UpdateEventPersonV2Input!) {
-      updateEventPerson(input: $input) {
-        id email firstName lastName jobTitle organization photoUrl websiteUrl biography
-      }
+      updateEventPerson(input: $input) { eventPerson { id email firstName lastName jobTitle organization } }
     }
   `, { input: { eventPersonId, ...rest } });
 });
@@ -1542,14 +1555,14 @@ reg("swapcard_create_planning_link", async (a) =>
 reg("swapcard_delete_planning_views", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation DeletePlanningViews($input: DeletePlanningViewsInput!) {
-      deletePlanningViews(input: $input)
+      deletePlanningViews(input: $input) { deletedPlanningViewsIds }
     }
   `, { input: a.input }));
 
 reg("swapcard_upsert_planning_redirect_url_view", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation UpsertPlanningRedirectUrlView($input: UpsertPlanningRedirectUrlViewInput!) {
-      upsertPlanningRedirectUrlView(input: $input) { id }
+      upsertPlanningRedirectUrlView(input: $input) { planning { id } }
     }
   `, { input: a.input }));
 
@@ -1588,9 +1601,7 @@ reg("swapcard_update_exhibitor", async (a) => {
   const { exhibitorId, ...rest } = a;
   return gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation UpdateExhibitor($input: UpdateExhibitorInput!) {
-      updateExhibitor(input: $input) {
-        id name description logoUrl websiteUrl email
-      }
+      updateExhibitor(input: $input) { exhibitor { id name description logoUrl websiteUrl email } }
     }
   `, { input: { exhibitorId, ...rest } });
 });
@@ -1598,10 +1609,7 @@ reg("swapcard_update_exhibitor", async (a) => {
 reg("swapcard_update_exhibitors_bulk", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation UpdateExhibitorsBulk($input: UpdateExhibitorsInput!) {
-      updateExhibitors(input: $input) {
-        errors { inputId message errorCode }
-        results { inputId exhibitor { id name } }
-      }
+      updateExhibitors(input: $input) { exhibitors { id name } }
     }
   `, { input: a.input }));
 
@@ -1615,14 +1623,14 @@ reg("swapcard_delete_event_exhibitors", async (a) =>
 reg("swapcard_delete_exhibitors", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation DeleteExhibitors($input: DeleteExhibitorsInput!) {
-      deleteExhibitors(input: $input)
+      deleteExhibitors(input: $input) { deletedExhibitorsIds }
     }
   `, { input: a.input }));
 
 reg("swapcard_update_exhibitor_member_roles", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation UpdateExhibitorMemberRoles($input: UpdateExhibitorMemberRolesInput!) {
-      updateExhibitorMemberRoles(input: $input) { id }
+      updateExhibitorMemberRoles(input: $input) { exhibitorMember { id } }
     }
   `, { input: { id: a.id } }));
 
@@ -1630,35 +1638,35 @@ reg("swapcard_update_exhibitor_member_roles", async (a) =>
 reg("swapcard_create_exhibitor_link", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation CreateExhibitorLink($input: CreateExhibitorLinkInput!) {
-      createExhibitorLink(input: $input) { id childName parentName }
+      createExhibitorLink(input: $input) { exhibitorLink { id childName parentName } }
     }
   `, { input: { eventId: a.eventId, childName: a.childName, parentName: a.parentName, translations: a.translations } }));
 
 reg("swapcard_update_exhibitor_link", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation UpdateExhibitorLink($input: UpdateExhibitorLinkInput!) {
-      updateExhibitorLink(input: $input) { id childName parentName }
+      updateExhibitorLink(input: $input) { exhibitorLink { id childName parentName } }
     }
   `, { input: { exhibitorLinkId: a.exhibitorLinkId, childName: a.childName, parentName: a.parentName, translations: a.translations } }));
 
 reg("swapcard_delete_exhibitor_link", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation DeleteExhibitorLink($input: DeleteExhibitorLinkInput!) {
-      deleteExhibitorLink(input: $input)
+      deleteExhibitorLink(input: $input) { deletedExhibitorLinkId }
     }
   `, { input: { exhibitorLinkId: a.exhibitorLinkId } }));
 
 reg("swapcard_create_exhibitor_link_relation", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation CreateExhibitorLinkRelation($input: CreateExhibitorLinkRelationInput!) {
-      createExhibitorLinkRelation(input: $input) { id }
+      createExhibitorLinkRelation(input: $input) { exhibitorLink { id } }
     }
   `, { input: { exhibitorLinkId: a.exhibitorLinkId, parentExhibitorId: a.parentExhibitorId, childExhibitorId: a.childExhibitorId, eventId: a.eventId } }));
 
 reg("swapcard_delete_exhibitor_link_relation", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation DeleteExhibitorLinkRelation($input: DeleteExhibitorLinkRelationInput!) {
-      deleteExhibitorLinkRelation(input: $input)
+      deleteExhibitorLinkRelation(input: $input) { exhibitorLink { id } }
     }
   `, { input: { exhibitorLinkId: a.exhibitorLinkId, parentExhibitorId: a.parentExhibitorId, childExhibitorId: a.childExhibitorId, eventId: a.eventId } }));
 
@@ -1699,14 +1707,14 @@ reg("swapcard_delete_event_documents", async (a) =>
 reg("swapcard_create_document", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation CreateDocument($communityId: ID!, $eventId: ID, $document: CreateDocumentInput!) {
-      createDocument(communityId: $communityId, eventId: $eventId, document: $document) { id name description type url }
+      createDocument(communityId: $communityId, eventId: $eventId, document: $document) { document { id name description type url } }
     }
   `, { communityId: a.communityId, eventId: a.eventId, document: { name: a.name, url: a.url, description: a.description } }));
 
 reg("swapcard_update_document", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation UpdateDocument($id: ID!, $communityId: ID, $eventId: ID, $document: UpdateDocumentInput!) {
-      updateDocument(id: $id, communityId: $communityId, eventId: $eventId, document: $document) { id name description type url }
+      updateDocument(id: $id, communityId: $communityId, eventId: $eventId, document: $document) { document { id name description type url } }
     }
   `, { id: a.id, communityId: a.communityId, eventId: a.eventId, document: { name: a.name, url: a.url, description: a.description } }));
 
@@ -1746,35 +1754,35 @@ reg("swapcard_get_select_field_options", async (a) =>
 reg("swapcard_create_custom_field", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation CreateCustomField($input: CreateFieldDefinitionV2Input!) {
-      createFieldDefinition(input: $input) { event { id } }
+      createFieldDefinition(input: $input) { fieldDefinition { id name } }
     }
   `, { input: { eventId: a.eventId, name: a.name, target: a.target, type: a.type, isEditable: a.isEditable ?? true, isVisible: a.isVisible ?? true, translations: a.translations } }));
 
 reg("swapcard_update_custom_field", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation UpdateCustomField($input: UpdateFieldDefinitionV2Input!) {
-      updateFieldDefinition(input: $input) { event { id } errors { code } }
+      updateFieldDefinition(input: $input) { fieldDefinition { id name } }
     }
   `, { input: { fieldDefinitionId: a.fieldDefinitionId, isEditable: a.isEditable, isVisible: a.isVisible, maxCharacters: a.maxCharacters } }));
 
 reg("swapcard_delete_custom_fields", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation DeleteCustomFields($input: DeleteFieldDefinitionsInput!) {
-      deleteFieldDefinitions(input: $input) { errors { code } event { id } }
+      deleteFieldDefinitions(input: $input) { deletedFieldDefinitionIds }
     }
   `, { input: { eventId: a.eventId, fieldDefinitionIds: a.fieldDefinitionIds } }));
 
 reg("swapcard_set_select_field_value", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation SetSelectFieldValue($input: SetSelectFieldValueInput!) {
-      setSelectFieldValue(input: $input) { id value }
+      setSelectFieldValue(input: $input) { selectField { id value } }
     }
   `, { input: { fieldDefinitionId: a.fieldDefinitionId, key: a.key, fieldValueId: a.fieldValueId, translations: a.translations } }));
 
 reg("swapcard_delete_select_field_values", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation DeleteSelectFieldValues($input: DeleteSelectFieldValuesInput!) {
-      deleteSelectFieldValues(input: $input)
+      deleteSelectFieldValues(input: $input) { deletedSelectFieldsIds }
     }
   `, { input: { fieldDefinitionId: a.fieldDefinitionId } }));
 
@@ -1782,28 +1790,28 @@ reg("swapcard_delete_select_field_values", async (a) =>
 reg("swapcard_create_tree_field_node", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation CreateTreeFieldNode($input: CreateTreeFieldNodeInput!) {
-      createTreeFieldNode(input: $input) { id }
+      createTreeFieldNode(input: $input) { fieldDefinition { id } }
     }
   `, { input: { fieldDefinitionId: a.fieldDefinitionId, targetNode: a.targetNode, position: a.position, nodeId: a.nodeId } }));
 
 reg("swapcard_update_tree_field_node", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation UpdateTreeFieldNode($input: UpdateTreeFieldNodeInput!) {
-      updateTreeFieldNode(input: $input) { id }
+      updateTreeFieldNode(input: $input) { fieldDefinition { id } }
     }
   `, { input: { fieldDefinitionId: a.fieldDefinitionId, currentNodePath: a.currentNodePath, newNodePath: a.newNodePath, isSelectable: a.isSelectable, translations: a.translations } }));
 
 reg("swapcard_delete_tree_field_node", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation DeleteTreeFieldNode($input: DeleteTreeFieldNodeInput!) {
-      deleteTreeFieldNode(input: $input)
+      deleteTreeFieldNode(input: $input) { deletedFieldValueIds }
     }
   `, { input: { fieldDefinitionId: a.fieldDefinitionId, currentNodePath: a.currentNodePath } }));
 
 reg("swapcard_move_tree_field_node", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation MoveTreeFieldNode($input: MoveTreeFieldNodeInput!) {
-      moveTreeFieldNode(input: $input) { id }
+      moveTreeFieldNode(input: $input) { fieldDefinition { id } }
     }
   `, { input: { fieldDefinitionId: a.fieldDefinitionId, currentNodePath: a.currentNodePath, targetNode: a.targetNode, position: a.position } }));
 
@@ -1850,21 +1858,21 @@ reg("swapcard_delete_sponsors", async (a) =>
 reg("swapcard_create_role", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation CreateRole($input: CreateRoleInput!) {
-      createRole(input: $input) { id name description }
+      createRole(input: $input) { role { id name description } }
     }
   `, { input: { communityId: a.communityId, eventId: a.eventId, name: a.name, description: a.description, permissionIds: a.permissionIds, isDefault: a.isDefault, type: a.type, translations: a.translations } }));
 
 reg("swapcard_update_role", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation UpdateRole($input: UpdateRoleInput!) {
-      updateRole(input: $input) { id name description }
+      updateRole(input: $input) { role { id name description } }
     }
   `, { input: a.input }));
 
 reg("swapcard_delete_roles", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation DeleteRoles($input: DeleteRolesInput!) {
-      deleteRoles(input: $input)
+      deleteRoles(input: $input) { deletedRoleIds }
     }
   `, { input: a.input }));
 
@@ -1872,21 +1880,21 @@ reg("swapcard_delete_roles", async (a) =>
 reg("swapcard_create_ticket_type", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation CreateTicketType($input: CreateTicketTypeInput!) {
-      createTicketType(input: $input) { id name quantity htmlDescription freeLabel showFreeLabel }
+      createTicketType(input: $input) { ticketType { id name quantity htmlDescription } }
     }
   `, { input: { name: a.name, description: a.description, htmlDescription: a.htmlDescription, freeLabel: a.freeLabel, showFreeLabel: a.showFreeLabel } }));
 
 reg("swapcard_update_ticket_type", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation UpdateTicketType($input: UpdateTicketTypeInput!) {
-      updateTicketType(input: $input) { id name }
+      updateTicketType(input: $input) { ticketType { id name } }
     }
   `, { input: a.input }));
 
 reg("swapcard_delete_ticket_types", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation DeleteTicketTypes($input: DeleteTicketTypesInput!) {
-      deleteTicketTypes(input: $input)
+      deleteTicketTypes(input: $input) { deletedTicketTypeIds }
     }
   `, { input: a.input }));
 
@@ -1894,49 +1902,49 @@ reg("swapcard_delete_ticket_types", async (a) =>
 reg("swapcard_create_product", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation CreateProduct($input: CreateProductInput!) {
-      createProduct(input: $input) { id name description inputId }
+      createProduct(input: $input) { product { id name description inputId } }
     }
   `, { input: { eventId: a.eventId, categoryId: a.categoryId, name: a.name, clientId: a.clientId, description: a.description, imageUrl: a.imageUrl, assetsUrls: a.assetsUrls, exhibitorIds: a.exhibitorIds, customFields: a.customFields, translations: a.translations, withEvent: a.withEvent } }));
 
 reg("swapcard_update_product", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation UpdateProduct($input: UpdateProductInput!) {
-      updateProduct(input: $input) { id name description inputId }
+      updateProduct(input: $input) { product { id name description } }
     }
   `, { input: { productId: a.productId, eventId: a.eventId, categoryId: a.categoryId, name: a.name, description: a.description, imageUrl: a.imageUrl, assetsUrls: a.assetsUrls, exhibitorIds: a.exhibitorIds, customFields: a.customFields, translations: a.translations, inputId: a.inputId, withEvent: a.withEvent } }));
 
 reg("swapcard_update_products_bulk", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation UpdateProductsBulk($input: UpdateProductsInput!) {
-      updateProducts(input: $input) { id name }
+      updateProducts(input: $input) { products { id name } }
     }
   `, { input: a.input }));
 
 reg("swapcard_delete_products", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation DeleteProducts($input: DeleteProductsInput!) {
-      deleteProducts(input: $input)
+      deleteProducts(input: $input) { deletedProductIds }
     }
   `, { input: a.input }));
 
 reg("swapcard_create_product_category", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation CreateProductCategory($input: CreateProductCategoryInput!) {
-      createProductCategory(input: $input) { id name }
+      createProductCategory(input: $input) { productCategory { id name } }
     }
   `, { input: { eventId: a.eventId, name: a.name, parentId: a.parentId, imageUrl: a.imageUrl, color: a.color, limit: a.limit, fieldDefinitionIds: a.fieldDefinitionIds, translations: a.translations, withEvent: a.withEvent } }));
 
 reg("swapcard_update_product_category", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation UpdateProductCategory($input: UpdateProductCategoryInput!) {
-      updateProductCategory(input: $input) { id name }
+      updateProductCategory(input: $input) { productCategory { id name } }
     }
   `, { input: a.input }));
 
 reg("swapcard_delete_product_categories", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation DeleteProductCategories($input: DeleteProductCategoriesInput!) {
-      deleteProductCategories(input: $input)
+      deleteProductCategories(input: $input) { deletedProductCategoriesIds }
     }
   `, { input: a.input }));
 
@@ -1944,14 +1952,14 @@ reg("swapcard_delete_product_categories", async (a) =>
 reg("swapcard_create_locations", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation CreateLocations($input: CreateLocationsInput!) {
-      createLocations(input: $input) { id }
+      createLocations(input: $input) { locations { id } }
     }
   `, { input: { eventId: a.eventId } }));
 
 reg("swapcard_update_locations", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation UpdateLocations($input: UpdateLocationsInput!) {
-      updateLocations(input: $input) { id }
+      updateLocations(input: $input) { locations { id } }
     }
   `, { input: { eventId: a.eventId } }));
 
@@ -1969,21 +1977,21 @@ reg("swapcard_list_meetings", async (a) =>
 reg("swapcard_create_meeting", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation CreateMeeting($input: CreateMeetingInput!) {
-      createMeeting(input: $input) { id status source }
+      createMeeting(input: $input) { meeting { id status } }
     }
   `, { input: { eventId: a.eventId, slotId: a.slotId, placeId: a.placeId } }));
 
 reg("swapcard_update_meeting", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation UpdateMeeting($input: UpdateMeetingInput!) {
-      updateMeeting(input: $input) { id status description }
+      updateMeeting(input: $input) { meeting { id status description } }
     }
   `, { input: { meetingId: a.meetingId, description: a.description, canReschedule: a.canReschedule, canCancel: a.canCancel, maxParticipants: a.maxParticipants, placeId: a.placeId, slotId: a.slotId, participants: a.participants } }));
 
 reg("swapcard_update_person_meeting_slots", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation UpdatePersonMeetingSlots($input: UpdatePersonMeetingSlotsDisabledInput!) {
-      updatePersonMeetingSlotsDisabled(input: $input) { id }
+      updatePersonMeetingSlotsDisabled(input: $input) { person { id } }
     }
   `, { input: { eventId: a.eventId, personId: a.personId, meetingSlotIds: a.meetingSlotIds, meetingSlotRange: a.meetingSlotRange, isDisabled: a.isDisabled } }));
 
@@ -1996,21 +2004,21 @@ reg("swapcard_list_webhooks", async (a) =>
 reg("swapcard_create_webhook", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation CreateWebhook($input: CreateWebhookInput!) {
-      createWebhook(input: $input) { id eventId endpoint }
+      createWebhook(input: $input) { webhook { id eventId endpoint } }
     }
-  `, { input: { eventId: a.eventId, endpoint: a.endpoint, secret: a.secret } }));
+  `, { input: { eventId: a.eventId, endpoint: a.endpoint, secret: a.secret, hooks: a.hooks } }));
 
 reg("swapcard_update_webhook", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation UpdateWebhook($input: UpdateWebhookInput!) {
-      updateWebhook(input: $input) { id eventId endpoint }
+      updateWebhook(input: $input) { webhook { id endpoint } }
     }
   `, { input: { webhookId: a.webhookId, endpoint: a.endpoint, hooks: a.hooks, enabled: a.enabled, name: a.name } }));
 
 reg("swapcard_delete_webhook", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation DeleteWebhook($input: DeleteWebhookInput!) {
-      deleteWebhook(input: $input)
+      deleteWebhook(input: $input) { webhook { id } }
     }
   `, { input: { webhookId: a.webhookId } }));
 
@@ -2018,7 +2026,7 @@ reg("swapcard_delete_webhook", async (a) =>
 reg("swapcard_create_push_notification", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation CreatePushNotification($input: CreatePushNotificationInput!) {
-      createPushNotification(input: $input) { id }
+      createPushNotification(input: $input) { pushNotification { id } }
     }
   `, { input: { communityId: a.communityId, withEvent: a.withEvent } }));
 
@@ -2026,28 +2034,28 @@ reg("swapcard_create_push_notification", async (a) =>
 reg("swapcard_create_code", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation CreateCode($input: CreateCodeInput!) {
-      createCode(input: $input) { id code description quantity redeemed }
+      createCode(input: $input) { code { id code description quantity redeemed } }
     }
   `, { input: { eventId: a.eventId, description: a.description, availableFrom: a.availableFrom, availableUntil: a.availableUntil, code: a.code, type: a.type, revealHiddenTickets: a.revealHiddenTickets, exhibitorId: a.exhibitorId, quantity: a.quantity, rule: a.rule, discount: a.discount } }));
 
 reg("swapcard_update_code", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation UpdateCode($input: UpdateCodeInput!) {
-      updateCode(input: $input) { id code description quantity redeemed }
+      updateCode(input: $input) { code { id code description } }
     }
   `, { input: { codeId: a.codeId, code: a.code, type: a.type, revealHiddenTickets: a.revealHiddenTickets, description: a.description, availableFrom: a.availableFrom, availableUntil: a.availableUntil, quantity: a.quantity, rule: a.rule, discount: a.discount } }));
 
 reg("swapcard_delete_codes", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation DeleteCodes($input: DeleteCodesInput!) {
-      deleteCodes(input: $input)
+      deleteCodes(input: $input) { deletedCodeIds }
     }
   `, { input: a.input }));
 
 reg("swapcard_access_codes_scan", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation AccessCodesScan($input: ScanCodesInput!) {
-      accessCodesScan(input: $input) { id name }
+      accessCodesScan(input: $input) { scans }
     }
   `, { input: { immediate: a.immediate, deviceName: a.deviceName } }));
 
@@ -2055,7 +2063,7 @@ reg("swapcard_access_codes_scan", async (a) =>
 reg("swapcard_update_user_term", async (a) =>
   gql(CONTENT_URL, tok("SWAPCARD_CONTENT_TOKEN"), `
     mutation UpdateUserTerm($input: UpdateUserTermInput!) {
-      updateUserTerm(input: $input) { id }
+      updateUserTerm(input: $input) { userTerm { id } }
     }
   `, { input: { userTermId: a.userTermId, label: a.label, description: a.description, translations: a.translations, eventId: a.eventId, isRequired: a.isRequired, promptLocations: a.promptLocations } }));
 
